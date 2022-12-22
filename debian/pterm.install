@@ -1,0 +1,5 @@
+#! /usr/bin/dh-exec
+pterm usr/bin
+debian/pterm.desktop usr/share/applications
+icons/xpmpterm.c => usr/share/pixmaps/pterm.xpm
+icons/pterm-32.png => usr/share/pixmaps/pterm.png

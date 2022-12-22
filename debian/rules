@@ -1,0 +1,43 @@
+#! /usr/bin/make -f
+%:
+	dh $@ --with=autoreconf --parallel
+
+ptermtmp = debian/pterm
+
+export DEB_BUILD_MAINT_OPTIONS := hardening=+all
+export DEB_CPPFLAGS_MAINT_APPEND := -D_FILE_OFFSET_BITS=64
+
+autoreconf:
+	./mkfiles.pl
+	autoreconf -fi
+	rm -rf autom4te.cache
+
+override_dh_autoreconf-arch:
+	dh_autoreconf debian/rules -- autoreconf
+
+override_dh_autoreconf-indep:
+
+override_dh_auto_configure-arch:
+	dh_auto_configure -- --disable-git-commit
+
+override_dh_auto_configure-indep:
+
+override_dh_auto_build-arch:
+	dh_auto_build
+	-$(MAKE) -C icons cicons pngs
+
+override_dh_auto_build-indep:
+
+override_dh_auto_test-indep:
+
+override_dh_auto_clean:
+	dh_auto_clean
+	$(MAKE) -C icons clean
+
+override_dh_compress:
+	dh_compress -X.py
+
+override_dh_fixperms-arch:
+	dh_fixperms
+	chgrp utmp $(ptermtmp)/usr/bin/pterm
+	chmod g+s $(ptermtmp)/usr/bin/pterm

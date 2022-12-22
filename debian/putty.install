@@ -1,0 +1,5 @@
+#! /usr/bin/dh-exec
+pageant putty usr/bin
+debian/putty.desktop usr/share/applications
+icons/xpmputty.c => usr/share/pixmaps/putty.xpm
+icons/putty-32.png => usr/share/pixmaps/putty.png

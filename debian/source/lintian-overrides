@@ -1,0 +1,3 @@
+# Not in fact a duplicate word; "that that" is a common construction, and
+# grammatical in this case.
+putty source: spelling-error-in-patch-description debian/patches/gtk-focus.patch that that (duplicate word) that

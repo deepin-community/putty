@@ -1,0 +1,39 @@
+From 8731f1aee4100e941c13759fc081103061650ef4 Mon Sep 17 00:00:00 2001
+From: Simon Tatham <anakin@pobox.com>
+Date: Sat, 7 Aug 2021 16:59:05 +0100
+Subject: psusan manpage: add a PATH to the UML example.
+
+Ian Jackson observes that if PATH is not set in the environment,
+current versions of bash will pick a default one that has "." as the
+last directory, which is generally considered a terrible idea:
+
+  https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=991959
+
+Work around this by specifying a more sensible default in our example
+script, per Ian's suggestion in
+
+  https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=991960
+
+Origin: upstream, https://git.tartarus.org/?p=simon/putty.git;a=commit;h=9983ff53d5a3d59d58030be0cd46a30eb5da5abc
+Bug-Debian: https://bugs.debian.org/991960
+Last-Update: 2021-08-16
+
+Patch-Name: psusan-example-add-path.patch
+---
+ doc/man-psusan.but | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/doc/man-psusan.but b/doc/man-psusan.but
+index fa986e88..0ecb5ca9 100644
+--- a/doc/man-psusan.but
++++ b/doc/man-psusan.but
+@@ -191,6 +191,9 @@ And the setup script \cw{uml-psusan.sh} might look like this:
+ \c # Choose what shell you want to run inside psusan
+ \e iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+ \c export SHELL=/bin/bash
++\c # Set up a default path
++\e iiiiiiiiiiiiiiiiiiiiiii
++\c export PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
+ \c # And now run psusan over the serial port
+ \e iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+ \c exec /home/simon/src/putty/misc/psusan

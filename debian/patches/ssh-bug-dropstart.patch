@@ -1,0 +1,240 @@
+From f75f7d041ecc70a949f6e5ac440509fa2c3dd6a4 Mon Sep 17 00:00:00 2001
+From: Simon Tatham <anakin@pobox.com>
+Date: Sat, 14 Aug 2021 10:56:20 +0100
+Subject: Bug workaround to delay sending our SSH greeting.
+
+Ian Jackson recently tried to use the recipe in the psusan manpage for
+talking to UML, and found that the connection was not successfully set
+up, because at some point during startup, UML read the SSH greeting
+(ok, the bare-ssh-connection greeting) from its input fd and threw it
+away. So by the time psusan was run by the guest init process, the
+greeting wasn't there to be read.
+
+Ian's report: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=991958
+
+I was also able to reproduce this locally, which makes me wonder why I
+_didn't_ notice it when I originally wrote that part of the psusan man
+page. It worked for me before, honest! But now it doesn't.
+
+Anyway. The ssh verstring module already has a mode switch to decide
+whether we ought to send our greeting before or after waiting for the
+other side's greeting (because that decision varies between client and
+server, and between SSH-1 and SSH-2). So it's easy to implement an
+override that forces it to 'wait for the server greeting first'.
+
+I've added this as yet another bug workaround flag. But unlike all the
+others, it can't be autodetected from the server's version string,
+because, of course, we have to act on it _before_ seeing the server's
+greeting and version string! So it's a manual-only flag.
+
+However, I've mentioned it in the UML section of the psusan man page,
+since that's the place where I _know_ people are likely to need to use
+this flag.
+
+Origin: upstream, https://git.tartarus.org/?p=simon/putty.git;a=commit;h=c62b7229c1928f875c77108db50ab356c7f59001
+Bug-Debian: https://bugs.debian.org/991958
+Last-Update: 2021-08-16
+
+Patch-Name: ssh-bug-dropstart.patch
+---
+ config.c           | 38 ++++++++++++++++++++++++++++++++++++++
+ doc/config.but     | 28 +++++++++++++++++++++++++++-
+ doc/man-psusan.but | 16 ++++++++++++----
+ putty.h            |  1 +
+ settings.c         |  2 ++
+ sshverstring.c     |  8 ++++++++
+ windows/winhelp.h  |  1 +
+ 7 files changed, 89 insertions(+), 5 deletions(-)
+
+diff --git a/config.c b/config.c
+index b8348530..85ec00d0 100644
+--- a/config.c
++++ b/config.c
+@@ -735,6 +735,37 @@ static void sshbug_handler(union control *ctrl, dlgparam *dlg,
+     }
+ }
+ 
++static void sshbug_handler_manual_only(union control *ctrl, dlgparam *dlg,
++                                       void *data, int event)
++{
++    /*
++     * This is just like sshbug_handler, except that there's no 'Auto'
++     * option. Used for bug workaround flags that can't be
++     * autodetected, and have to be manually enabled if they're to be
++     * used at all.
++     */
++    Conf *conf = (Conf *)data;
++    if (event == EVENT_REFRESH) {
++        int oldconf = conf_get_int(conf, ctrl->listbox.context.i);
++        dlg_update_start(ctrl, dlg);
++        dlg_listbox_clear(ctrl, dlg);
++        dlg_listbox_addwithid(ctrl, dlg, "Off", FORCE_OFF);
++        dlg_listbox_addwithid(ctrl, dlg, "On", FORCE_ON);
++        switch (oldconf) {
++          case FORCE_OFF: dlg_listbox_select(ctrl, dlg, 0); break;
++          case FORCE_ON:  dlg_listbox_select(ctrl, dlg, 1); break;
++        }
++        dlg_update_done(ctrl, dlg);
++    } else if (event == EVENT_SELCHANGE) {
++        int i = dlg_listbox_index(ctrl, dlg);
++        if (i < 0)
++            i = FORCE_OFF;
++        else
++            i = dlg_listbox_getid(ctrl, dlg, i);
++        conf_set_int(conf, ctrl->listbox.context.i, i);
++    }
++}
++
+ struct sessionsaver_data {
+     union control *editbox, *listbox, *loadbutton, *savebutton, *delbutton;
+     union control *okbutton, *cancelbutton;
+@@ -3039,6 +3070,13 @@ void setup_config_box(struct controlbox *b, bool midsession,
+                           HELPCTX(ssh_bugs_maxpkt2),
+                           sshbug_handler, I(CONF_sshbug_maxpkt2));
+ 
++            s = ctrl_getset(b, "Connection/SSH/Bugs", "manual",
++                            "Manually enabled workarounds");
++            ctrl_droplist(s, "Discards data sent before its greeting", 'd', 20,
++                          HELPCTX(ssh_bugs_dropstart),
++                          sshbug_handler_manual_only,
++                          I(CONF_sshbug_dropstart));
++
+             ctrl_settitle(b, "Connection/SSH/More bugs",
+                           "Further workarounds for SSH server bugs");
+ 
+diff --git a/doc/config.but b/doc/config.but
+index 77313282..904a04a9 100644
+--- a/doc/config.but
++++ b/doc/config.but
+@@ -3206,7 +3206,10 @@ three states:
+ \b \q{On}: PuTTY will assume the server \e{does} have the bug.
+ 
+ \b \q{Auto}: PuTTY will use the server's version number announcement
+-to try to guess whether or not the server has the bug.
++to try to guess whether or not the server has the bug. (This option is
++not available for bugs that \e{cannot} be detected from the server
++version, e.g. because they must be acted on before the server version
++is known.)
+ 
+ \S{config-ssh-bug-ignore2} \q{Chokes on SSH-2 \i{ignore message}s}
+ 
+@@ -3299,6 +3302,29 @@ send an over-sized packet.  If this bug is enabled when talking to a
+ correct server, the session will work correctly, but download
+ performance will be less than it could be.
+ 
++\S{config-ssh-bug-dropstart} \q{Discards data sent before its greeting}
++
++Just occasionally, an SSH connection can be established over some
++channel that will accidentally discard outgoing data very early in the
++connection.
++
++This is not typically seen as a bug in an actual SSH server, but it
++can sometimes occur in situations involving a complicated proxy
++process. An example is
++\W{https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=991958}{Debian
++bug #991958}, in which a connection going over the console of a User
++Mode Linux kernel can lose outgoing data before the kernel has fully
++booted.
++
++You can work around this problem by manually enabling this bug flag,
++which will cause PuTTY to wait to send its initial SSH greeting until
++after it sees the greeting from the server.
++
++Note that this bug flag can never be automatically detected, since
++auto-detection relies on the version string in the server's greeting,
++and PuTTY has to decide whether to expect this bug \e{before} it sees
++the server's greeting. So this is a manual workaround only.
++
+ \S{config-ssh-bug-sig} \q{Requires padding on SSH-2 \i{RSA} \i{signatures}}
+ 
+ Versions below 3.3 of \i{OpenSSH} require SSH-2 RSA signatures to be
+diff --git a/doc/man-psusan.but b/doc/man-psusan.but
+index 0ecb5ca9..4d7638dd 100644
+--- a/doc/man-psusan.but
++++ b/doc/man-psusan.but
+@@ -199,10 +199,18 @@ And the setup script \cw{uml-psusan.sh} might look like this:
+ \c exec /home/simon/src/putty/misc/psusan
+ 
+ Now set up a PuTTY saved session as in the Docker example above, using
+-that \cw{linux} command as the local proxy command, and you'll have a
+-PuTTY session that starts up a clean UML instance when you run it, and
+-(if you enabled connection sharing) further instances of the same
+-session will connect to the same instance again.
++that \cw{linux} command as the local proxy command. You may also find
++that you have to enable the bug workaround that indicates that the
++server \q{Discards data sent before its greeting}, because otherwise
++PuTTY's outgoing protocol greeting can be accidentally lost during UML
++startup. (See
++\W{https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=991958}{Debian
++bug #991958}.)
++
++Once you've done that, you'll have a PuTTY session that starts up a
++clean UML instance when you run it, and (if you enabled connection
++sharing) further instances of the same session will connect to the
++same instance again.
+ 
+ \S2{psusan-manpage-examples-wsl} Windows Subsystem for Linux
+ 
+diff --git a/putty.h b/putty.h
+index 7789f217..cb1893d1 100644
+--- a/putty.h
++++ b/putty.h
+@@ -1601,6 +1601,7 @@ NORETURN void cleanup_exit(int);
+     X(INT, NONE, sshbug_oldgex2) \
+     X(INT, NONE, sshbug_winadj) \
+     X(INT, NONE, sshbug_chanreq) \
++    X(INT, NONE, sshbug_dropstart) \
+     /*                                                                \
+      * ssh_simple means that we promise never to open any channel     \
+      * other than the main one, which means it can safely use a very  \
+diff --git a/settings.c b/settings.c
+index 32a53c54..c8336c76 100644
+--- a/settings.c
++++ b/settings.c
+@@ -769,6 +769,7 @@ void save_open_settings(settings_w *sesskey, Conf *conf)
+     write_setting_i(sesskey, "BugOldGex2", 2-conf_get_int(conf, CONF_sshbug_oldgex2));
+     write_setting_i(sesskey, "BugWinadj", 2-conf_get_int(conf, CONF_sshbug_winadj));
+     write_setting_i(sesskey, "BugChanReq", 2-conf_get_int(conf, CONF_sshbug_chanreq));
++    write_setting_i(sesskey, "BugDropStart", 2-conf_get_int(conf, CONF_sshbug_dropstart));
+     write_setting_b(sesskey, "StampUtmp", conf_get_bool(conf, CONF_stamp_utmp));
+     write_setting_b(sesskey, "LoginShell", conf_get_bool(conf, CONF_login_shell));
+     write_setting_b(sesskey, "ScrollbarOnLeft", conf_get_bool(conf, CONF_scrollbar_on_left));
+@@ -1244,6 +1245,7 @@ void load_open_settings(settings_r *sesskey, Conf *conf)
+     i = gppi_raw(sesskey, "BugOldGex2", 0); conf_set_int(conf, CONF_sshbug_oldgex2, 2-i);
+     i = gppi_raw(sesskey, "BugWinadj", 0); conf_set_int(conf, CONF_sshbug_winadj, 2-i);
+     i = gppi_raw(sesskey, "BugChanReq", 0); conf_set_int(conf, CONF_sshbug_chanreq, 2-i);
++    i = gppi_raw(sesskey, "BugDropStart", 0); conf_set_int(conf, CONF_sshbug_dropstart, 2-i);
+     conf_set_bool(conf, CONF_ssh_simple, false);
+     gppb(sesskey, "StampUtmp", true, conf, CONF_stamp_utmp);
+     gppb(sesskey, "LoginShell", true, conf, CONF_login_shell);
+diff --git a/sshverstring.c b/sshverstring.c
+index 8951e4cb..29b76679 100644
+--- a/sshverstring.c
++++ b/sshverstring.c
+@@ -104,6 +104,14 @@ BinaryPacketProtocol *ssh_verstring_new(
+      */
+     s->send_early = server_mode || !ssh_version_includes_v1(protoversion);
+ 
++    /*
++     * Override: we don't send our version string early if the server
++     * has a bug that will make it discard it. See for example
++     * https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=991958
++     */
++    if (conf_get_int(s->conf, CONF_sshbug_dropstart) == FORCE_ON)
++        s->send_early = false;
++
+     s->bpp.vt = &ssh_verstring_vtable;
+     ssh_bpp_common_setup(&s->bpp);
+     return &s->bpp;
+diff --git a/windows/winhelp.h b/windows/winhelp.h
+index 9011df45..b5001e9a 100644
+--- a/windows/winhelp.h
++++ b/windows/winhelp.h
+@@ -162,6 +162,7 @@
+ #define WINHELP_CTX_ssh_bugs_winadj "config-ssh-bug-winadj"
+ #define WINHELP_CTX_ssh_bugs_chanreq "config-ssh-bug-chanreq"
+ #define WINHELP_CTX_ssh_bugs_oldgex2 "config-ssh-bug-oldgex2"
++#define WINHELP_CTX_ssh_bugs_dropstart "config-ssh-bug-dropstart"
+ #define WINHELP_CTX_serial_line "config-serial-line"
+ #define WINHELP_CTX_serial_speed "config-serial-speed"
+ #define WINHELP_CTX_serial_databits "config-serial-databits"
