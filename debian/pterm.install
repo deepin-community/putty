@@ -1,5 +1,8 @@
 #! /usr/bin/dh-exec
-pterm usr/bin
+usr/bin/pterm
 debian/pterm.desktop usr/share/applications
-icons/xpmpterm.c => usr/share/pixmaps/pterm.xpm
-icons/pterm-32.png => usr/share/pixmaps/pterm.png
+icons/pterm-16.png => usr/share/icons/hicolor/16x16/apps/pterm.png
+icons/pterm-32.png => usr/share/icons/hicolor/32x32/apps/pterm.png
+icons/pterm-48.png => usr/share/icons/hicolor/48x48/apps/pterm.png
+icons/pterm-128.png => usr/share/icons/hicolor/128x128/apps/pterm.png
+icons/pterm.svg usr/share/icons/hicolor/scalable/apps

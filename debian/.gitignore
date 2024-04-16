@@ -1,0 +1,9 @@
+/*.debhelper*
+/*.substvars
+/build
+/files
+/pterm
+/putty
+/putty-doc
+/putty-tools
+/version.but.save

@@ -1,5 +1,5 @@
-plink usr/bin
-pscp usr/bin
-psftp usr/bin
-psusan usr/bin
-puttygen usr/bin
+usr/bin/plink
+usr/bin/pscp
+usr/bin/psftp
+usr/bin/psusan
+usr/bin/puttygen

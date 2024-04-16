@@ -1,43 +1,41 @@
 #! /usr/bin/make -f
 %:
-	dh $@ --with=autoreconf --parallel
+	dh $@ -Bdebian/build
 
 ptermtmp = debian/pterm
 
 export DEB_BUILD_MAINT_OPTIONS := hardening=+all
 export DEB_CPPFLAGS_MAINT_APPEND := -D_FILE_OFFSET_BITS=64
 
-autoreconf:
-	./mkfiles.pl
-	autoreconf -fi
-	rm -rf autom4te.cache
+include /usr/share/dpkg/default.mk
 
-override_dh_autoreconf-arch:
-	dh_autoreconf debian/rules -- autoreconf
-
-override_dh_autoreconf-indep:
-
-override_dh_auto_configure-arch:
-	dh_auto_configure -- --disable-git-commit
-
-override_dh_auto_configure-indep:
-
-override_dh_auto_build-arch:
-	dh_auto_build
-	-$(MAKE) -C icons cicons pngs
+execute_after_dh_auto_build-arch:
+	$(MAKE) -C icons cicons pngs svgs
 
 override_dh_auto_build-indep:
+	if [ ! -e debian/version.but.save ]; then \
+		cp -a doc/version.but debian/version.but.save; \
+	fi
+	printf '\\versionid %s PuTTY release %s\n' \
+		"$(DEB_VENDOR)" "$(DEB_VERSION)" >doc/version.but
+	$(MAKE) -C debian/build doc
 
-override_dh_auto_test-indep:
-
-override_dh_auto_clean:
-	dh_auto_clean
+execute_after_dh_auto_clean:
 	$(MAKE) -C icons clean
+	if [ -e debian/version.but.save ]; then \
+		mv debian/version.but.save doc/version.but; \
+	fi
+
+override_dh_auto_install-indep:
+
+override_dh_installdocs:
+	dh_installdocs -Nputty-doc
+	dh_installdocs -pputty-doc \
+		--sourcedir=debian/build --doc-main-package=putty-doc
 
 override_dh_compress:
 	dh_compress -X.py
 
-override_dh_fixperms-arch:
-	dh_fixperms
+execute_after_dh_fixperms-arch:
 	chgrp utmp $(ptermtmp)/usr/bin/pterm
 	chmod g+s $(ptermtmp)/usr/bin/pterm

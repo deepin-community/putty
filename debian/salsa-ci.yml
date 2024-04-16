@@ -1,0 +1,10 @@
+---
+include:
+  - https://salsa.debian.org/salsa-ci-team/pipeline/raw/master/recipes/debian.yml
+
+variables:
+  SALSA_CI_DISABLE_AUTOPKGTEST: 1
+
+reprotest:
+  # https://bugs.debian.org/928921, I think
+  allow_failure: true
