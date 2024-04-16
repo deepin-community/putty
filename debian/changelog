@@ -1,12 +1,83 @@
-putty (0.76-1) UNRELEASED; urgency=medium
+putty (0.81-1) unstable; urgency=high
 
-  * update
+  * Build-depend on pkgconf rather than pkg-config.
+  * New upstream release:
+    - CVE-2024-31497: Fix exposure of NIST P521 ECDSA private keys by biased
+      signature generation.
 
- -- Colin Watson <cjwatson@debian.org>  Mon, 04 Jul 2022 05:23:49 -0400
+ -- Colin Watson <cjwatson@debian.org>  Mon, 15 Apr 2024 23:41:28 +0100
+
+putty (0.80-1) unstable; urgency=high
+
+  * New upstream release:
+    - CVE-2023-48795: Mitigations for SSH protocol 'Terrapin' vulnerability.
+
+ -- Colin Watson <cjwatson@debian.org>  Mon, 18 Dec 2023 17:42:06 +0000
+
+putty (0.79-1) unstable; urgency=medium
+
+  * debian/upstream/signing-key.asc: Drop 2018 release key; add 2023 release
+    key
+    (https://www.chiark.greenend.org.uk/~sgtatham/putty/keys/release-2023.asc).
+  * New upstream release:
+    - GTK: fix crash changing font size when terminal maximised (closes:
+      #1038788).
+
+ -- Colin Watson <cjwatson@debian.org>  Sun, 27 Aug 2023 22:36:26 +0100
+
+putty (0.78-3) unstable; urgency=medium
+
+  * Clean icons/*.svg (closes: #1047016).
+
+ -- Colin Watson <cjwatson@debian.org>  Mon, 14 Aug 2023 13:48:06 +0100
+
+putty (0.78-2) unstable; urgency=medium
+
+  [ Pino Toscano ]
+  * Drop menu files, since pterm and putty already provide a .desktop file.
+  * Stop shipping pterm.xpm and putty.xpm, as they were needed only by the
+    menu files.
+  * Ship all the available PNG icons to the XDG hicolor icon theme, so they
+    can be loaded properly depending on the size, and even themed.
+  * Stop shipping the PNG icons in the legacy pixmaps directory, as the hicolor
+    icons will be enough now.
+  * Build also the SVG icons, and ship them in the XDG hicolor icon theme.
+  * Annotate python3 build dependency as :any, as it is needed only as a tool
+    during the build.
+
+ -- Colin Watson <cjwatson@debian.org>  Sun, 18 Dec 2022 14:57:23 +0000
+
+putty (0.78-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Update Lintian override to current syntax.
+  * debian/watch: Upgrade to version 4.
+  * debian/copyright: Convert to copyright-format 1.0.
+  * Override Lintian source-is-missing misfire (see #1019980).
+
+ -- Colin Watson <cjwatson@debian.org>  Sat, 29 Oct 2022 14:31:42 +0100
+
+putty (0.77-1) unstable; urgency=medium
+
+  * Use dh_installalternatives.
+  * Simplify some debhelper overrides slightly.
+  * Update upstream release signing keys (see
+    https://www.chiark.greenend.org.uk/~sgtatham/putty/keys.html).
+  * New upstream release.
+  * Rework packaging somewhat to handle upstream's switch to CMake.
+
+ -- Colin Watson <cjwatson@debian.org>  Tue, 31 May 2022 10:28:05 +0100
+
+putty (0.76-2) unstable; urgency=medium
+
+  * Upgrade to debhelper v13.
+  * Build documentation from source using halibut (fixes bug where man page
+    patches in 0.76-1 were ineffective).
+
+ -- Colin Watson <cjwatson@debian.org>  Tue, 21 Dec 2021 00:48:30 +0000
 
 putty (0.76-1) unstable; urgency=medium
 
-  * rebuild.
   * New upstream release.
   * Cherry-pick from upstream:
     - psusan manpage: add a PATH to the UML example (closes: #991960).
@@ -817,7 +888,7 @@ putty (0.53-b-2003-10-12-1) unstable; urgency=low
 putty (0.53-b-2003-08-23-2) unstable; urgency=low
 
   * Fix -DSNAPSHOT calculation for NMU-style-versioned packages (thanks,
-    Owen Dunn).
+    Alexandra Lanes).
 
  -- Colin Watson <cjwatson@debian.org>  Sun, 31 Aug 2003 14:22:59 +0100
 

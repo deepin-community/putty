@@ -1,5 +1,9 @@
 #! /usr/bin/dh-exec
-pageant putty usr/bin
+usr/bin/pageant
+usr/bin/putty
 debian/putty.desktop usr/share/applications
-icons/xpmputty.c => usr/share/pixmaps/putty.xpm
-icons/putty-32.png => usr/share/pixmaps/putty.png
+icons/putty-16.png => usr/share/icons/hicolor/16x16/apps/putty.png
+icons/putty-32.png => usr/share/icons/hicolor/32x32/apps/putty.png
+icons/putty-48.png => usr/share/icons/hicolor/48x48/apps/putty.png
+icons/putty-128.png => usr/share/icons/hicolor/128x128/apps/putty.png
+icons/putty.svg usr/share/icons/hicolor/scalable/apps

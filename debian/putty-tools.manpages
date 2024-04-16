@@ -1,5 +1,5 @@
-doc/plink.1
-doc/pscp.1
-doc/psftp.1
-doc/psusan.1
-doc/puttygen.1
+usr/share/man/man1/plink.1
+usr/share/man/man1/pscp.1
+usr/share/man/man1/psftp.1
+usr/share/man/man1/psusan.1
+usr/share/man/man1/puttygen.1
