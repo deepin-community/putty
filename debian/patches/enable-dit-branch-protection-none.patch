@@ -1,0 +1,28 @@
+From a191b64f1dbb607fdf81a94055102c0024578872 Mon Sep 17 00:00:00 2001
+From: Colin Watson <cjwatson@debian.org>
+Date: Thu, 13 Feb 2025 12:58:37 +0000
+Subject: Build enable_dit.c with -mbranch-protection=none
+
+Suggested by Simon Tatham to fix test failures on arm64 CPUs without
+pointer authentication support.
+
+Last-Update: 2025-02-13
+
+Patch-Name: enable-dit-branch-protection-none.patch
+---
+ crypto/CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/crypto/CMakeLists.txt b/crypto/CMakeLists.txt
+index e57bb600..9d1c6c57 100644
+--- a/crypto/CMakeLists.txt
++++ b/crypto/CMakeLists.txt
+@@ -237,7 +237,7 @@ if(neon)
+ endif()
+ 
+ test_compile_with_flags(HAVE_ARM_DIT
+-  GNU_FLAGS -march=armv8.4-a
++  GNU_FLAGS -march=armv8.4-a -mbranch-protection=none
+   TEST_SOURCE "
+     int main(void) { asm volatile(\"msr dit, %0\" :: \"r\"(1)); }"
+   ADD_SOURCES_IF_SUCCESSFUL enable_dit.c)

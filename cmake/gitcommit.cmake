@@ -1,6 +1,6 @@
 # Pure cmake script to write out cmake_commit.c and cmake_version.but
 
-set(DEFAULT_COMMIT "a8601a72a918dfc2a8e8536a77139d7f37700044")
+set(DEFAULT_COMMIT "d2c178c49a0ae6fa9ef75ca84fb3c9d0d675ea85")
 set(commit "${DEFAULT_COMMIT}")
 
 set(TOPLEVEL_SOURCE_DIR ${CMAKE_SOURCE_DIR})

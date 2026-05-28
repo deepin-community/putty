@@ -1,0 +1,321 @@
+From d7db524d14998f7d9a615d64520753628afebdff Mon Sep 17 00:00:00 2001
+From: Simon Tatham <anakin@pobox.com>
+Date: Wed, 25 Jun 2025 13:02:56 +0100
+Subject: Fix crash in utmp-stamping on Wayland.
+
+Thanks to Colin Watson for the report: if pterm is both
+able (appropriately setgid) and willing (given the right options) to
+stamp utmp, it will use $DISPLAY as the location to write into utmp,
+and segfault if it's not set. But in a Wayland-only system it might
+very well not be set.
+
+To fix this I've generalised seat_get_x_display() into
+seat_get_display(), so that it can also return a display id string
+like "wayland-0" if that's what's appropriate. So now in that
+situation pterm will stamp utmp with a Wayland display id in place of
+an X11 one.
+
+However, seat_get_x_display() was also used to retrieve an X11 display
+name specifically so as to populate $DISPLAY in the terminal's shell.
+So the new seat_get_display() has a parameter to constrain the
+returned display to be of a particular type, or NULL if that type
+isn't available.
+
+As a final fallback, in case seat_get_display(seat, SDISP_ANY) might
+_still_ manage to return NULL for any reason, we catch that and turn
+it into the empty string before stamping utmp, so that we still won't
+segfault.
+
+Origin: upstream, https://git.tartarus.org/?p=simon/putty.git;a=commitdiff;h=26a8ef376daf5f50c441a65691b84f87df49db9b
+Last-Update: 2025-06-26
+
+Patch-Name: utmp-wayland-crash.patch
+---
+ proxy/sshproxy.c  |  2 +-
+ pscp.c            |  2 +-
+ psftp.c           |  2 +-
+ putty.h           | 20 ++++++++++++++------
+ ssh/server.c      |  2 +-
+ ssh/sesschan.c    |  4 ++--
+ stubs/null-seat.c |  3 ++-
+ unix/plink.c      |  2 +-
+ unix/pty.c        |  7 +++++--
+ unix/window.c     | 14 +++++++-------
+ utils/tempseat.c  |  6 +++---
+ windows/plink.c   |  2 +-
+ windows/window.c  |  2 +-
+ 13 files changed, 40 insertions(+), 28 deletions(-)
+
+diff --git a/proxy/sshproxy.c b/proxy/sshproxy.c
+index 0958c3cd..848b986e 100644
+--- a/proxy/sshproxy.c
++++ b/proxy/sshproxy.c
+@@ -583,7 +583,7 @@ static const SeatVtable SshProxy_seat_vt = {
+     .prompt_descriptions = sshproxy_prompt_descriptions,
+     .is_utf8 = nullseat_is_never_utf8,
+     .echoedit_update = nullseat_echoedit_update,
+-    .get_x_display = nullseat_get_x_display,
++    .get_display = nullseat_get_display,
+     .get_windowid = nullseat_get_windowid,
+     .get_window_pixel_size = nullseat_get_window_pixel_size,
+     .stripctrl_new = sshproxy_stripctrl_new,
+diff --git a/pscp.c b/pscp.c
+index c7c4623f..1aa812eb 100644
+--- a/pscp.c
++++ b/pscp.c
+@@ -81,7 +81,7 @@ static const SeatVtable pscp_seat_vt = {
+     .prompt_descriptions = console_prompt_descriptions,
+     .is_utf8 = nullseat_is_never_utf8,
+     .echoedit_update = nullseat_echoedit_update,
+-    .get_x_display = nullseat_get_x_display,
++    .get_display = nullseat_get_display,
+     .get_windowid = nullseat_get_windowid,
+     .get_window_pixel_size = nullseat_get_window_pixel_size,
+     .stripctrl_new = console_stripctrl_new,
+diff --git a/psftp.c b/psftp.c
+index b33e29a9..927ac688 100644
+--- a/psftp.c
++++ b/psftp.c
+@@ -62,7 +62,7 @@ static const SeatVtable psftp_seat_vt = {
+     .prompt_descriptions = console_prompt_descriptions,
+     .is_utf8 = nullseat_is_never_utf8,
+     .echoedit_update = nullseat_echoedit_update,
+-    .get_x_display = nullseat_get_x_display,
++    .get_display = nullseat_get_display,
+     .get_windowid = nullseat_get_windowid,
+     .get_window_pixel_size = nullseat_get_window_pixel_size,
+     .stripctrl_new = console_stripctrl_new,
+diff --git a/putty.h b/putty.h
+index fdcd6ca3..e0792c3a 100644
+--- a/putty.h
++++ b/putty.h
+@@ -1111,6 +1111,11 @@ void seat_dialog_text_free(SeatDialogText *sdt);
+ PRINTF_LIKE(3, 4) void seat_dialog_text_append(
+     SeatDialogText *sdt, SeatDialogTextType type, const char *fmt, ...);
+ 
++/* Parameter to seat_get_display */
++typedef enum SeatDisplayType {
++    SDISP_X11, SDISP_ANY
++} SeatDisplayType;
++
+ /*
+  * Data type 'Seat', which is an API intended to contain essentially
+  * everything that a back end might need to talk to its client for:
+@@ -1340,10 +1345,13 @@ struct SeatVtable {
+     void (*echoedit_update)(Seat *seat, bool echoing, bool editing);
+ 
+     /*
+-     * Return the local X display string relevant to a seat, or NULL
+-     * if there isn't one or if the concept is meaningless.
++     * Return a string describing the GUI display (e.g. X11 or
++     * Wayland) relevant to a seat, or NULL if there isn't one or if
++     * the concept is meaningless. If dtype is not SDISP_ANY then only
++     * a display string of the requested type will be returned, or
++     * NULL if the available display is of a different type.
+      */
+-    const char *(*get_x_display)(Seat *seat);
++    const char *(*get_display)(Seat *seat, SeatDisplayType dtype);
+ 
+     /*
+      * Return the X11 id of the X terminal window relevant to a seat,
+@@ -1467,8 +1475,8 @@ static inline bool seat_is_utf8(Seat *seat)
+ { return seat->vt->is_utf8(seat); }
+ static inline void seat_echoedit_update(Seat *seat, bool ec, bool ed)
+ { seat->vt->echoedit_update(seat, ec, ed); }
+-static inline const char *seat_get_x_display(Seat *seat)
+-{ return seat->vt->get_x_display(seat); }
++static inline const char *seat_get_display(Seat *seat, SeatDisplayType dtype)
++{ return seat->vt->get_display(seat, dtype); }
+ static inline bool seat_get_windowid(Seat *seat, long *id_out)
+ { return seat->vt->get_windowid(seat, id_out); }
+ static inline bool seat_get_window_pixel_size(Seat *seat, int *w, int *h)
+@@ -1556,7 +1564,7 @@ const SeatDialogPromptDescriptions *nullseat_prompt_descriptions(Seat *seat);
+ bool nullseat_is_never_utf8(Seat *seat);
+ bool nullseat_is_always_utf8(Seat *seat);
+ void nullseat_echoedit_update(Seat *seat, bool echoing, bool editing);
+-const char *nullseat_get_x_display(Seat *seat);
++const char *nullseat_get_display(Seat *seat, SeatDisplayType dtype);
+ bool nullseat_get_windowid(Seat *seat, long *id_out);
+ bool nullseat_get_window_pixel_size(Seat *seat, int *width, int *height);
+ StripCtrlChars *nullseat_stripctrl_new(
+diff --git a/ssh/server.c b/ssh/server.c
+index 97fc5841..3ff9a59f 100644
+--- a/ssh/server.c
++++ b/ssh/server.c
+@@ -126,7 +126,7 @@ static const SeatVtable server_seat_vt = {
+     .prompt_descriptions = nullseat_prompt_descriptions,
+     .is_utf8 = nullseat_is_never_utf8,
+     .echoedit_update = nullseat_echoedit_update,
+-    .get_x_display = nullseat_get_x_display,
++    .get_display = nullseat_get_display,
+     .get_windowid = nullseat_get_windowid,
+     .get_window_pixel_size = nullseat_get_window_pixel_size,
+     .stripctrl_new = nullseat_stripctrl_new,
+diff --git a/ssh/sesschan.c b/ssh/sesschan.c
+index cc50fd5c..504875ae 100644
+--- a/ssh/sesschan.c
++++ b/ssh/sesschan.c
+@@ -203,7 +203,7 @@ static const SeatVtable sesschan_seat_vt = {
+     .prompt_descriptions = nullseat_prompt_descriptions,
+     .is_utf8 = nullseat_is_never_utf8,
+     .echoedit_update = nullseat_echoedit_update,
+-    .get_x_display = nullseat_get_x_display,
++    .get_display = nullseat_get_display,
+     .get_windowid = nullseat_get_windowid,
+     .get_window_pixel_size = sesschan_get_window_pixel_size,
+     .stripctrl_new = nullseat_stripctrl_new,
+@@ -310,7 +310,7 @@ static void sesschan_start_backend(sesschan *sess, const char *cmd)
+      * confusingly set in the absence of that.
+      *
+      * (DISPLAY must also be cleared, but pty.c will do that anyway
+-     * when our get_x_display method returns NULL.)
++     * when our get_display method returns NULL.)
+      */
+     static const char *const env_to_unset[] = {
+         "XAUTHORITY", "SSH_AUTH_SOCK", "SSH_AGENT_PID",
+diff --git a/stubs/null-seat.c b/stubs/null-seat.c
+index 67c25af0..e50f1668 100644
+--- a/stubs/null-seat.c
++++ b/stubs/null-seat.c
+@@ -37,7 +37,8 @@ SeatPromptResult nullseat_confirm_weak_cached_hostkey(
+ bool nullseat_is_never_utf8(Seat *seat) { return false; }
+ bool nullseat_is_always_utf8(Seat *seat) { return true; }
+ void nullseat_echoedit_update(Seat *seat, bool echoing, bool editing) {}
+-const char *nullseat_get_x_display(Seat *seat) { return NULL; }
++const char *nullseat_get_display(Seat *seat, SeatDisplayType dtype)
++{ return NULL; }
+ bool nullseat_get_windowid(Seat *seat, long *id_out) { return false; }
+ bool nullseat_get_window_pixel_size(
+     Seat *seat, int *width, int *height) { return false; }
+diff --git a/unix/plink.c b/unix/plink.c
+index d5db2c2a..8bae403d 100644
+--- a/unix/plink.c
++++ b/unix/plink.c
+@@ -419,7 +419,7 @@ static const SeatVtable plink_seat_vt = {
+     .prompt_descriptions = console_prompt_descriptions,
+     .is_utf8 = nullseat_is_never_utf8,
+     .echoedit_update = plink_echoedit_update,
+-    .get_x_display = nullseat_get_x_display,
++    .get_display = nullseat_get_display,
+     .get_windowid = nullseat_get_windowid,
+     .get_window_pixel_size = nullseat_get_window_pixel_size,
+     .stripctrl_new = console_stripctrl_new,
+diff --git a/unix/pty.c b/unix/pty.c
+index 2e3ca749..9270a539 100644
+--- a/unix/pty.c
++++ b/unix/pty.c
+@@ -958,7 +958,10 @@ Backend *pty_backend_create(
+                 close(pty_utmp_helper_pipe);
+                 pty_utmp_helper_pipe = -1;
+             } else {
+-                const char *location = seat_get_x_display(pty->seat);
++                const char *location = seat_get_display(pty->seat, SDISP_ANY);
++                if (!location)
++                    location = "";
++
+                 int len = strlen(location)+1, pos = 0; /* +1 to include NUL */
+                 while (pos < len) {
+                     int ret = write(pty_utmp_helper_pipe,
+@@ -1133,7 +1136,7 @@ Backend *pty_backend_create(
+              * terminal to match the display the terminal itself is
+              * on.
+              */
+-            const char *x_display = seat_get_x_display(pty->seat);
++            const char *x_display = seat_get_display(pty->seat, SDISP_X11);
+             if (x_display) {
+                 char *x_display_env_var = dupprintf("DISPLAY=%s", x_display);
+                 putenv(x_display_env_var);
+diff --git a/unix/window.c b/unix/window.c
+index 7302dc2c..5186e9a2 100644
+--- a/unix/window.c
++++ b/unix/window.c
+@@ -412,7 +412,7 @@ static void gtk_seat_notify_remote_exit(Seat *seat);
+ static void gtk_seat_update_specials_menu(Seat *seat);
+ static void gtk_seat_set_busy_status(Seat *seat, BusyStatus status);
+ #ifndef NOT_X_WINDOWS
+-static const char *gtk_seat_get_x_display(Seat *seat);
++static const char *gtk_seat_get_display(Seat *seat, SeatDisplayType dtype);
+ static bool gtk_seat_get_windowid(Seat *seat, long *id);
+ #endif
+ static void gtk_seat_set_trust_status(Seat *seat, bool trusted);
+@@ -440,10 +440,10 @@ static const SeatVtable gtk_seat_vt = {
+     .is_utf8 = gtk_seat_is_utf8,
+     .echoedit_update = nullseat_echoedit_update,
+ #ifdef NOT_X_WINDOWS
+-    .get_x_display = nullseat_get_x_display,
++    .get_display = nullseat_get_display,
+     .get_windowid = nullseat_get_windowid,
+ #else
+-    .get_x_display = gtk_seat_get_x_display,
++    .get_display = gtk_seat_get_display,
+     .get_windowid = gtk_seat_get_windowid,
+ #endif
+     .get_window_pixel_size = gtk_seat_get_window_pixel_size,
+@@ -4350,11 +4350,11 @@ void modalfatalbox(const char *p, ...)
+ }
+ 
+ #ifndef NOT_X_WINDOWS
+-static const char *gtk_seat_get_x_display(Seat *seat)
++static const char *gtk_seat_get_display(Seat *seat, SeatDisplayType dtype)
+ {
+-    if (GDK_IS_X11_DISPLAY(gdk_display_get_default()))
+-        return gdk_get_display();
+-    return NULL;
++    if (dtype == SDISP_X11 && !GDK_IS_X11_DISPLAY(gdk_display_get_default()))
++        return NULL;
++    return gdk_get_display();
+ }
+ 
+ static bool gtk_seat_get_windowid(Seat *seat, long *id)
+diff --git a/utils/tempseat.c b/utils/tempseat.c
+index 4e4e2b13..a64d599c 100644
+--- a/utils/tempseat.c
++++ b/utils/tempseat.c
+@@ -149,10 +149,10 @@ static bool tempseat_is_utf8(Seat *seat)
+     return seat_is_utf8(ts->realseat);
+ }
+ 
+-static const char *tempseat_get_x_display(Seat *seat)
++static const char *tempseat_get_display(Seat *seat, SeatDisplayType dtype)
+ {
+     TempSeat *ts = container_of(seat, TempSeat, seat);
+-    return seat_get_x_display(ts->realseat);
++    return seat_get_display(ts->realseat, dtype);
+ }
+ 
+ static bool tempseat_get_windowid(Seat *seat, long *id_out)
+@@ -348,7 +348,7 @@ static const struct SeatVtable tempseat_vt = {
+     .prompt_descriptions = tempseat_prompt_descriptions,
+     .is_utf8 = tempseat_is_utf8,
+     .echoedit_update = tempseat_echoedit_update,
+-    .get_x_display = tempseat_get_x_display,
++    .get_display = tempseat_get_display,
+     .get_windowid = tempseat_get_windowid,
+     .get_window_pixel_size = tempseat_get_window_pixel_size,
+     .stripctrl_new = tempseat_stripctrl_new,
+diff --git a/windows/plink.c b/windows/plink.c
+index face662f..4a25f7d7 100644
+--- a/windows/plink.c
++++ b/windows/plink.c
+@@ -107,7 +107,7 @@ static const SeatVtable plink_seat_vt = {
+     .prompt_descriptions = console_prompt_descriptions,
+     .is_utf8 = nullseat_is_never_utf8,
+     .echoedit_update = plink_echoedit_update,
+-    .get_x_display = nullseat_get_x_display,
++    .get_display = nullseat_get_display,
+     .get_windowid = nullseat_get_windowid,
+     .get_window_pixel_size = nullseat_get_window_pixel_size,
+     .stripctrl_new = console_stripctrl_new,
+diff --git a/windows/window.c b/windows/window.c
+index efc028e9..efe5dd50 100644
+--- a/windows/window.c
++++ b/windows/window.c
+@@ -267,7 +267,7 @@ static const SeatVtable win_seat_vt = {
+     .prompt_descriptions = win_seat_prompt_descriptions,
+     .is_utf8 = win_seat_is_utf8,
+     .echoedit_update = nullseat_echoedit_update,
+-    .get_x_display = nullseat_get_x_display,
++    .get_display = nullseat_get_display,
+     .get_windowid = nullseat_get_windowid,
+     .get_window_pixel_size = win_seat_get_window_pixel_size,
+     .stripctrl_new = win_seat_stripctrl_new,

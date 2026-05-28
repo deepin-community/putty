@@ -1,0 +1,8 @@
+manifest-version: "0.1"
+packages:
+  pterm:
+    transformations:
+      - path-metadata:
+          path: usr/bin/pterm
+          group: utmp
+          mode: "02755"
