@@ -3,6 +3,7 @@
 <html>
 <head>
 <meta http-equiv="content-type" content="text/html; charset=US-ASCII">
+<meta name="generator" content="Halibut, unidentified version">
 <title>Using the command-line connection tool Plink</title>
 <link rel="previous" href="Chapter6.html">
 <link rel="ToC" href="index.html">
@@ -24,8 +25,9 @@
 <li><a href="#plink-options">7.2.3 Plink command line options</a></li>
 </ul></li>
 <li><a href="#plink-batch">7.3 Using Plink in batch files and scripts</a></li>
-<li><a href="#plink-cvs">7.4 Using Plink with CVS</a></li>
-<li><a href="#plink-wincvs">7.5 Using Plink with WinCVS</a></li>
+<li><a href="#plink-git">7.4 Using Plink with Git</a></li>
+<li><a href="#plink-cvs">7.5 Using Plink with CVS</a></li>
+<li><a href="#plink-wincvs">7.6 Using Plink with WinCVS</a></li>
 </ul></li>
 </ul>
 <h1><a name="plink"></a><a name="C7"></a>Chapter 7: Using the command-line connection tool <a name="i0"></a>Plink</h1>
@@ -52,11 +54,11 @@ This will only work for the lifetime of that particular console window. To set y
 This section describes the basics of how to use Plink for interactive logins and for automated processes.
 </p>
 <p>
-Once you've got a console window to type into, you can just type <code>plink</code> on its own to bring up a usage message. This tells you the version of Plink you're using, and gives you a brief summary of how to use Plink:
+Once you've got a console window to type into, you can type <code>plink --help</code> to bring up a usage message. This tells you the version of Plink you're using, and gives you a brief summary of how to use Plink:
 </p>
-<pre><code>C:\&gt;plink
+<pre><code>C:\&gt;plink --help
 Plink: command-line connection utility
-Release 0.81
+Release 0.84
 Usage: plink [options] [user@]host [command]
        ("host" can also be a PuTTY saved session name)
 Options:
@@ -73,6 +75,8 @@ Options:
   -batch    disable all interactive prompts
   -proxycmd command
             use 'command' as local proxy
+  -preconnectcommand command
+            run 'command' before making network connection
   -sercfg configuration-string (e.g. 19200,8,n,1,X)
             Specify the serial configuration (serial only)
 The following options only apply to SSH connections:
@@ -224,6 +228,9 @@ If you use the <code>-batch</code> option, Plink will never give an interactive 
 <p>
 This may help Plink's behaviour when it is used in automated scripts: using <code>-batch</code>, if something goes wrong at connection time, the batch job will fail rather than hang.
 </p>
+<p>
+If another program is invoking Plink on your behalf, then you might need to arrange that that program passes <code>-batch</code> to Plink. See <a href="#plink-git">section 7.4</a> for an example involving Git.
+</p>
 <h4><a name="plink-option-s"></a><a name="S7.2.3.2"></a>7.2.3.2 <a name="i11"></a><code>-s</code>: remote command is SSH subsystem</h4>
 <p>
 If you specify the <code>-s</code> option, Plink passes the specified command as the name of an SSH &#8216;<a name="i12"></a>subsystem&#8217; rather than an ordinary command line.
@@ -231,22 +238,7 @@ If you specify the <code>-s</code> option, Plink passes the specified command as
 <p>
 (This option is only meaningful with the SSH-2 protocol.)
 </p>
-<h4><a name="plink-option-share"></a><a name="S7.2.3.3"></a>7.2.3.3 <a name="i13"></a><code>-share</code>: Test and try to share an existing connection.</h4>
-<p>
-This option tries to detect if an existing connection can be shared (See <a href="Chapter4.html#config-ssh-sharing">section 4.17.5</a> for more information about SSH connection sharing.) and reuses that connection.
-</p>
-<p>
-A Plink invocation of the form:
-</p>
-<pre><code>plink -share <em>&lt;session&gt;</em>
-</code></pre>
-<p>
-will test whether there is currently a viable &#8216;upstream&#8217; for the session in question, which can be specified using any syntax you'd normally use with Plink to make an actual connection (a host/port number, a bare saved session name, <code>-load</code>, etc). If no &#8216;upstream&#8217; viable session is found and <code>-share</code> is specified, this connection will be become the &#8216;upstream&#8217; connection for subsequent connection sharing tries.
-</p>
-<p>
-(This option is only meaningful with the SSH-2 protocol.)
-</p>
-<h4><a name="plink-option-shareexists"></a><a name="S7.2.3.4"></a>7.2.3.4 <a name="i14"></a><code>-shareexists</code>: test for connection-sharing upstream</h4>
+<h4><a name="plink-option-shareexists"></a><a name="S7.2.3.3"></a>7.2.3.3 <a name="i13"></a><code>-shareexists</code>: test for connection-sharing upstream</h4>
 <p>
 This option does not make a new connection; instead it allows testing for the presence of an existing connection that can be shared. (See <a href="Chapter4.html#config-ssh-sharing">section 4.17.5</a> for more information about SSH connection sharing.)
 </p>
@@ -261,7 +253,7 @@ will test whether there is currently a viable &#8216;upstream&#8217; for the ses
 <p>
 (This option is only meaningful with the SSH-2 protocol.)
 </p>
-<h4><a name="plink-option-sanitise"></a><a name="S7.2.3.5"></a>7.2.3.5 <a name="i15"></a><a name="i16"></a><a name="i17"></a><a name="i18"></a><code>-sanitise-</code><em>stream</em>: control output sanitisation</h4>
+<h4><a name="plink-option-sanitise"></a><a name="S7.2.3.4"></a>7.2.3.4 <a name="i14"></a><a name="i15"></a><a name="i16"></a><a name="i17"></a><code>-sanitise-</code><em>stream</em>: control output sanitisation</h4>
 <p>
 In some situations, Plink applies a sanitisation pass to the output received from the server, to strip out control characters such as backspace and the escape character.
 </p>
@@ -299,7 +291,7 @@ Sanitise server data written to Plink's standard output channel.
 Do not sanitise server data written to Plink's standard output channel.
 </dd>
 </dl>
-<h4><a name="plink-option-antispoof"></a><a name="S7.2.3.6"></a>7.2.3.6 <a name="i19"></a>-no-antispoof: turn off authentication spoofing protection prompt</h4>
+<h4><a name="plink-option-antispoof"></a><a name="S7.2.3.5"></a>7.2.3.5 <a name="i18"></a><code>-no-antispoof</code>: turn off authentication spoofing protection prompt</h4>
 <p>
 In SSH, some possible server authentication methods require user input (for example, password authentication, or entering a private key passphrase), and others do not (e.g. a private key held in Pageant).
 </p>
@@ -327,7 +319,7 @@ If Plink is in batch mode (see <a href="#plink-usage-batch">section 7.2.2</a>), 
 <p>
 But if you still find the protective prompt inconvenient, and you trust the server not to try a trick like this, you can turn it off using the &#8216;<code>-no-antispoof</code>&#8217; option.
 </p>
-<h2><a name="plink-batch"></a><a name="S7.3"></a>7.3 Using Plink in <a name="i20"></a>batch files and <a name="i21"></a>scripts</h2>
+<h2><a name="plink-batch"></a><a name="S7.3"></a>7.3 Using Plink in <a name="i19"></a>batch files and <a name="i20"></a>scripts</h2>
 <p>
 Once you have set up Plink to be able to log in to a remote server without any interactive prompting (see <a href="#plink-usage-batch">section 7.2.2</a>), you can use it for lots of scripting and batch purposes. For example, to start a backup on a remote machine, you might use a command like:
 </p>
@@ -341,9 +333,32 @@ Or perhaps you want to fetch all system log lines relating to a particular web a
 <p>
 Any non-interactive command you could usefully run on the server command line, you can run in a batch file using Plink in this way.
 </p>
-<h2><a name="plink-cvs"></a><a name="S7.4"></a>7.4 Using Plink with <a name="i22"></a>CVS</h2>
+<h2><a name="plink-git"></a><a name="S7.4"></a>7.4 Using Plink with <a name="i21"></a>Git</h2>
 <p>
-To use Plink with CVS, you need to set the environment variable <a name="i23"></a><code>CVS_RSH</code> to point to Plink:
+To use Plink for Git operations performed over SSH, you can set the environment variable <a name="i22"></a><code>GIT_SSH_COMMAND</code> to point to Plink.
+</p>
+<p>
+For example, if you've run PuTTY's full Windows installer and it has installed Plink in the default location, you might do this:
+</p>
+<pre><code>set GIT_SSH_COMMAND="C:\Program Files\PuTTY\plink.exe"
+</code></pre>
+<p>
+or if you've put Plink somewhere else then you can do a similar thing with a different path.
+</p>
+<p>
+This environment variable accepts a whole command line, not just an executable file name. So you can add Plink options to the end of it if you like. For example, if you're using Git in a batch-mode context, where your Git jobs are running unattended and nobody is available to answer interactive prompts, you might also append the &#8216;<code>-batch</code>&#8217; option (<a href="#plink-option-batch">section 7.2.3.1</a>):
+</p>
+<pre><code>set GIT_SSH_COMMAND="C:\Program Files\PuTTY\plink.exe" -batch
+</code></pre>
+<p>
+and then if Plink unexpectedly prints a prompt of some kind (for example, because the SSH server's host key has changed), your batch job will terminate with an error message, instead of stopping and waiting for user input that will never arrive.
+</p>
+<p>
+(However, you don't <em>always</em> want to do this with Git. If you're using Git interactively, you might <em>want</em> Plink to stop for interactive prompts &#8211; for example, to let you enter a password for the SSH server.)
+</p>
+<h2><a name="plink-cvs"></a><a name="S7.5"></a>7.5 Using Plink with <a name="i23"></a>CVS</h2>
+<p>
+To use Plink with CVS, you need to set the environment variable <a name="i24"></a><code>CVS_RSH</code> to point to Plink:
 </p>
 <pre><code>set CVS_RSH=\path\to\plink.exe
 </code></pre>
@@ -360,7 +375,7 @@ If you specified a username in your saved session, you don't even need to specif
 </p>
 <pre><code>cvs -d :ext:sessionname:/path/to/repository co module
 </code></pre>
-<h2><a name="plink-wincvs"></a><a name="S7.5"></a>7.5 Using Plink with <a name="i24"></a>WinCVS</h2>
+<h2><a name="plink-wincvs"></a><a name="S7.6"></a>7.6 Using Plink with <a name="i25"></a>WinCVS</h2>
 <p>
 Plink can also be used with WinCVS. Firstly, arrange for Plink to be able to connect to a remote host non-interactively, as described in <a href="#plink-usage-batch">section 7.2.2</a>.
 </p>
@@ -368,7 +383,7 @@ Plink can also be used with WinCVS. Firstly, arrange for Plink to be able to con
 Then, in WinCVS, bring up the &#8216;Preferences&#8217; dialogue box from the <em>Admin</em> menu, and switch to the &#8216;Ports&#8217; tab. Tick the box there labelled &#8216;Check for an alternate <code>rsh</code> name&#8217; and in the text entry field to the right enter the full path to <code>plink.exe</code>. Select &#8216;OK&#8217; on the &#8216;Preferences&#8217; dialogue box.
 </p>
 <p>
-Next, select &#8216;Command Line&#8217; from the WinCVS &#8216;Admin&#8217; menu, and type a CVS command as in <a href="#plink-cvs">section 7.4</a>, for example:
+Next, select &#8216;Command Line&#8217; from the WinCVS &#8216;Admin&#8217; menu, and type a CVS command as in <a href="#plink-cvs">section 7.5</a>, for example:
 </p>
 <pre><code>cvs -d :ext:user@hostname:/path/to/repository co module
 </code></pre>
@@ -382,5 +397,5 @@ Select the folder you want to check out to with the &#8216;Change Folder&#8217; 
 </p>
 
 <hr><p>If you want to provide feedback on this manual or on the PuTTY tools themselves, see the <a href="https://www.chiark.greenend.org.uk/~sgtatham/putty/feedback.html">Feedback page</a>.</p><address>
-[PuTTY release 0.81]</address></body>
+[PuTTY release 0.84]</address></body>
 </html>

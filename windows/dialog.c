@@ -251,6 +251,47 @@ static char *getevent(int i)
 static HWND logbox;
 HWND event_log_window(void) { return logbox; }
 
+static void update_logbox_horizontal_extent(HWND logbox)
+{
+    /* Find the width of every entry in the current Event Log, and set
+     * the horizontal scrollbar so that you can scroll right to see
+     * all of them. */
+    HWND listbox = GetDlgItem(logbox, IDN_LIST);
+    HDC hdc = GetDC(listbox);
+    int count = SendMessage(listbox, LB_GETCOUNT, 0, 0);
+    strbuf *sb = strbuf_new();
+    WPARAM maxwidth = 0;
+    for (int i = 0; i < count; i++) {
+        size_t len = SendMessage(listbox, LB_GETTEXTLEN, i, 0);
+        strbuf_clear(sb);
+        SendMessage(listbox, LB_GETTEXT, i, (LPARAM)strbuf_append(sb, len));
+        SIZE size;
+        if (GetTextExtentPoint(hdc, sb->s, sb->len, &size)) {
+            if (maxwidth < size.cx)
+                maxwidth = size.cx;
+        }
+    }
+    strbuf_free(sb);
+    ReleaseDC(listbox, hdc);
+
+    /*
+     * This doesn't seem to set _exactly_ the right width. If I scroll
+     * the scrollbar right as far as it will go, I find I end up with
+     * a bit of extra space on the right of the longest piece of text.
+     * I don't know why that is.
+     *
+     * Testing with debug(), GetTextExtentPoint seems to be correctly
+     * returning the exact width in pixels of each log entry's text.
+     * And the docs for LB_SETHORIZONTALEXTENT say that it wants a
+     * width in pixels too. So I don't think it can be the usual
+     * problem of confusing logical dialog units and pixels. (In any
+     * case, on the high-DPI display where I tested, the difference
+     * between those is more than a factor of 2, whereas I'm seeing a
+     * discrepancy of only about 10%.)
+     */
+    SendMessage(listbox, LB_SETHORIZONTALEXTENT, maxwidth, 0);
+}
+
 static INT_PTR CALLBACK LogProc(HWND hwnd, UINT msg,
                                 WPARAM wParam, LPARAM lParam)
 {
@@ -272,6 +313,8 @@ static INT_PTR CALLBACK LogProc(HWND hwnd, UINT msg,
         for (i = 0; i < ncircular; i++)
             SendDlgItemMessage(hwnd, IDN_LIST, LB_ADDSTRING,
                                0, (LPARAM) events_circular[(circular_first + i) % LOGEVENT_CIRCULAR_MAX]);
+        update_logbox_horizontal_extent(hwnd);
+
         return 1;
       }
       case WM_COMMAND:
@@ -300,35 +343,21 @@ static INT_PTR CALLBACK LogProc(HWND hwnd, UINT msg,
                                                    LB_GETSELITEMS,
                                                    selcount,
                                                    (LPARAM) selitems);
-                    int i;
-                    int size;
-                    char *clipdata;
-                    static unsigned char sel_nl[] = SEL_NL;
+                    static const unsigned char sel_nl[] = SEL_NL;
 
                     if (count == 0) {  /* can't copy zero stuff */
                         MessageBeep(0);
                         break;
                     }
 
-                    size = 0;
-                    for (i = 0; i < count; i++)
-                        size +=
-                            strlen(getevent(selitems[i])) + sizeof(sel_nl);
-
-                    clipdata = snewn(size, char);
-                    if (clipdata) {
-                        char *p = clipdata;
-                        for (i = 0; i < count; i++) {
-                            char *q = getevent(selitems[i]);
-                            int qlen = strlen(q);
-                            memcpy(p, q, qlen);
-                            p += qlen;
-                            memcpy(p, sel_nl, sizeof(sel_nl));
-                            p += sizeof(sel_nl);
-                        }
-                        write_aclip(CLIP_SYSTEM, clipdata, size, true);
-                        sfree(clipdata);
+                    strbuf *sb = strbuf_new();
+                    for (int i = 0; i < count; i++) {
+                        char *q = getevent(selitems[i]);
+                        put_datapl(sb, ptrlen_from_asciz(q));
+                        put_data(sb, sel_nl, sizeof(sel_nl));
                     }
+                    write_aclip(hwnd, CLIP_SYSTEM, sb->s, sb->len);
+                    strbuf_free(sb);
                     sfree(selitems);
 
                     for (i = 0; i < (ninitial + ncircular); i++)
@@ -473,7 +502,7 @@ static HTREEITEM treeview_insert(struct treeview_faff *faff,
     return newitem;
 }
 
-const char *dialog_box_demo_screenshot_filename = NULL;
+Filename *dialog_box_demo_screenshot_filename = NULL;
 
 /* ctrltrees indices for the main dialog box */
 enum {
@@ -804,6 +833,8 @@ static void win_gui_eventlog(LogPolicy *lp, const char *string)
                            0, (LPARAM) *location);
         count = SendDlgItemMessage(logbox, IDN_LIST, LB_GETCOUNT, 0, 0);
         SendDlgItemMessage(logbox, IDN_LIST, LB_SETTOPINDEX, count - 1, 0);
+
+        update_logbox_horizontal_extent(logbox);
     }
     if (ninitial < LOGEVENT_INITIAL_MAX) {
         ninitial++;
@@ -1173,7 +1204,7 @@ SeatPromptResult win_seat_confirm_ssh_host_key(
         wgs->term_hwnd, HostKeyDialogProc, ctx);
     assert(mbret==IDC_HK_ACCEPT || mbret==IDC_HK_ONCE || mbret==IDCANCEL);
     if (mbret == IDC_HK_ACCEPT) {
-        store_host_key(host, port, keytype, keystr);
+        store_host_key(seat, host, port, keytype, keystr);
         return SPR_OK;
     } else if (mbret == IDC_HK_ONCE) {
         return SPR_OK;
@@ -1241,11 +1272,12 @@ static int win_gui_askappend(LogPolicy *lp, Filename *filename,
     char *mbtitle;
     int mbret;
 
-    message = dupprintf(msgtemplate, FILENAME_MAX, filename->path);
+    message = dupprintf(msgtemplate, FILENAME_MAX, filename->utf8path);
     mbtitle = dupprintf("%s Log to File", appname);
 
-    mbret = MessageBox(NULL, message, mbtitle,
-                       MB_ICONQUESTION | MB_YESNOCANCEL | MB_DEFBUTTON3);
+    mbret = message_box(NULL, message, mbtitle,
+                        MB_ICONQUESTION | MB_YESNOCANCEL | MB_DEFBUTTON3,
+                        true, 0);
 
     socket_reselect_all();
 
