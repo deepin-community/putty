@@ -13,18 +13,16 @@ execute_after_dh_auto_build-arch:
 	$(MAKE) -C icons cicons pngs svgs
 
 override_dh_auto_build-indep:
-	if [ ! -e debian/version.but.save ]; then \
-		cp -a doc/version.but debian/version.but.save; \
-	fi
+	dh_assistant restore-file-on-clean doc/version.but
 	printf '\\versionid %s PuTTY release %s\n' \
 		"$(DEB_VENDOR)" "$(DEB_VERSION)" >doc/version.but
 	$(MAKE) -C debian/build doc
 
+execute_after_dh_auto_test-arch:
+	PUTTY_TESTCRYPT=./debian/build/testcrypt python3 ./test/cryptsuite.py
+
 execute_after_dh_auto_clean:
 	$(MAKE) -C icons clean
-	if [ -e debian/version.but.save ]; then \
-		mv debian/version.but.save doc/version.but; \
-	fi
 
 override_dh_auto_install-indep:
 
@@ -35,7 +33,3 @@ override_dh_installdocs:
 
 override_dh_compress:
 	dh_compress -X.py
-
-execute_after_dh_fixperms-arch:
-	chgrp utmp $(ptermtmp)/usr/bin/pterm
-	chmod g+s $(ptermtmp)/usr/bin/pterm
